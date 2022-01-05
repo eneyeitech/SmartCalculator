@@ -15,8 +15,10 @@ public class Main {
             if ("/exit".equals(line)) {
                 System.out.println("Bye!");
                 break;
-            }
-            if ("".equals(line)) {
+            } else if ("/help".equals(line)) {
+                System.out.println("The program calculates the sum of numbers");
+
+            } else if ("".equals(line)) {
 
             } else {
                 if (values.length >= 2) {
@@ -33,12 +35,14 @@ public class Main {
     }
 
     public static void calculateSum(String[] values) {
+        int sum = 0;
         int a = 0;
-        int b = 0;
         try {
-            a = Integer.parseInt(values[0]);
-            b = Integer.parseInt(values[1]);
-            System.out.println(sum(a, b));
+            for (String s : values) {
+                a = Integer.parseInt(s);
+                sum += a;
+            }
+            System.out.println(sum(sum, 0));
 
         } catch (NumberFormatException e) {
 
