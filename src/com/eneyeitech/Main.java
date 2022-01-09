@@ -1,297 +1,239 @@
 package com.eneyeitech;
 
+import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.math.RoundingMode;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class Main {
 
+    static final Scanner SCANNER = new Scanner(System.in);
+    static final Map<String, BigDecimal> vars = new LinkedHashMap<>(); // variables in memory
+
+    static final String EQUATION_REGEX = "([A-Za-z]+\\s*=)?(\\s*[-+(]*\\s*)*(((\\d+(\\.\\d+)?)|[A-Za-z]+)(((\\s*[-+()]+\\s*)+)|(\\s*[()]*\\s*[*/^]+\\s*[()]*\\s*)))*(\\d+(\\.\\d+)?|[A-Za-z]+)\\)*";
+    static final String DECIMAL_REGEX = "\\d+(\\.\\d+)?";
+    static final String DECIMAL_WITH_MINUS_REGEX = "-?" + DECIMAL_REGEX;
+    static final String VARIABLE_REGEX = "[A-Za-z]+";
+    static final String OPERATOR_REGEX = "[-+*/^()]";
+
+    static final String COMMAND_SIGN = "/";
+    static final String EXIT = "exit";
+    static final String HELP = "help";
+
     public static void main(String[] args) {
-        Scanner scanner = new Scanner(System.in);
+        while (true) {
+            String order = clean(SCANNER.nextLine());
+            if(order.equals("paas")) {
+                System.out.println("Invalid expression");
+            }
 
-        Calculator calculator = new Calculator();
-
-        do {
-            String input = scanner.nextLine().trim();
-
-            if (input.isEmpty()) {
-                continue;
-            } else if (Calculator.COMMAND_EXIT.equals(input)) {
+            else if  (order.matches(EQUATION_REGEX)) {
+                try {
+                    if (order.contains("=")) {
+                        String[] eq = order.split("=");
+                        if (vars.containsKey(eq[0] )) {
+                            vars.replace(eq[0] , eval(eq[1]));
+                        } else {
+                            vars.put(eq[0] , eval(eq[1]));
+                        }
+                    } else {
+                        System.out.println(eval(order));
+                    }
+                } catch (IllegalStateException e) {
+                    System.out.println(e.getMessage());
+                }
+            } else if (order.equals(COMMAND_SIGN + EXIT)) {
+                System.out.println("Bye!");
                 break;
-            } else if (Calculator.COMMAND_HELP.equals(input)) {
-                System.out.println(Calculator.getHelp());
-                continue;
-            } else if (input.startsWith("/")) {
-                System.out.println("Unknown command");
-                continue;
+            } else if (order.equals(COMMAND_SIGN + HELP)) {
+                System.out.println("The program calculates equations");
+            } else if (order.isBlank()) {
+
+            } else {
+                if (order.startsWith(COMMAND_SIGN)) {
+                    System.out.println("Unknown command");
+                } else if (order.contains("=")) {
+                    System.out.println("Invalid identifier");
+                } else {
+                    System.out.println("Invalid expression");
+                }
             }
-
-            String result = calculator.processInput(input);
-            if (!result.isEmpty()) {
-                System.out.println(result);
-            }
-
-        } while(true);
-
-        System.out.println("Bye!");
+        }
     }
 
+    // decode existing variables
+    private static Map<Integer, String> decode(Map<Integer, String> variables) {
+        for (var entry : variables.entrySet()) {
+            Integer k = entry.getKey();
+            String v = entry.getValue();
+            if (vars.containsKey(v)) {
+                variables.replace(k, String.valueOf(vars.get(v)));
+            } else {
+                throw new IllegalStateException("Unknown variable");
+            }
+        }
+        return variables;
+    }
+
+    // prepare data structure from command and get result
+    private static BigDecimal eval(String command) throws IllegalStateException {
+        Map<Integer, String> map = new TreeMap<>();
+        map.putAll(find(DECIMAL_REGEX, command));
+        map.putAll(decode(find(VARIABLE_REGEX, command)));
+        map.putAll(find(OPERATOR_REGEX, command));
+        List<String> list = Util.postfixNotation(map.values());
+        return Util.calculatePostfix(list);
+    }
+
+    // return map with positions and found regex result
+    private static Map<Integer, String> find(String regex, String command) {
+        Map<Integer, String> results = new TreeMap<>();
+        Matcher matcher = Pattern.compile(regex).matcher(command);
+        while (matcher.find()) {
+            results.put(matcher.start(), matcher.group());
+        }
+        return results;
+    }
+
+    // remove whitespaces and doubled signs
+    private static String clean(String command) {
+        if(command.matches(".*\\*{3,}.*") || command.matches(".*/{2,}.*")) {
+            //throw new IllegalStateException("Invalid expression");
+            //System.out.println("Invalid expression");
+            return "paas";
+        }
+
+        return command.replaceAll("\\s+", "")
+                .replaceAll("(--)+", "+")
+                .replaceAll("\\++", "+")
+                .replaceAll("(\\+-)+", "-")
+                .replaceAll("(-\\+)+", "-")
+                .replaceAll("\\*+", "*")
+                .replaceAll("/+", "/");
+    }
 }
 
-class Calculator {
+class Util {
 
-    static final String COMMAND_EXIT = "/exit";
-    static final String COMMAND_HELP = "/help";
-
-    private Map<String, BigInteger> mapOfVars;
-
-    public Calculator() {
-        mapOfVars = new HashMap<>();
-    }
-
-    public static String getHelp() {
-        return "The program calculates expressions like these: 3 + 8 * ((4 + 3) * 2 + 1) - 6 / (2 + 1) ^ 3 , "
-                + "and so on. It supports both unary and binary minus operators. "
-                + "If several operators + or - follow each other, the program still works.";
-    }
-
-    private static int precedence(String elem) {
-        switch (elem) {
-            case "+":
-            case "-":
-                return 1;
-            case "*":
-            case "/":
-                return 2;
-            case "^":
-                return 3;
-            default:
-                throw new CalculatorException("Internal error", " - unknown precedence of (" + elem + ")");
-        }
-    }
-
-    public String processInput(String input){
-        String result;
-
-        try {
-            if (input.contains("=")) {
-                doAssignment(input);
-                result = "";
-            } else {
-                String[] postfixExpr = infixToPostfix(input);
-                BigInteger intResult = calculateWithPostfix(postfixExpr);
-                result = intResult.toString();
-            }
-        } catch (CalculatorException e) {
-            //result = e.getMessage() + e.getDescription();
-            result = e.getMessage();
-        }
-
-        return result;
-    }
-
-    private String[] infixToPostfix(String infixExpr) {
-        List<String> postfixList = new ArrayList<>();
-        Deque<String> stack = new ArrayDeque<>();
-
-        final String regex = "\\s*(\\d+|\\p{Alpha}+|\\(|\\)|\\++|-+|\\*|/|\\^)\\s*";
-
-        Pattern pattern = Pattern.compile(regex);
-        Matcher matcher = pattern.matcher(infixExpr);
-        List<String> infixList = new ArrayList<>();
-
-        while(matcher.find()) {
-            infixList.add(matcher.group().trim());
-        }
-        //System.out.println(infixList);
-        String previousElem = "(";        // For the unary minus the beginning of the input = (
-
-        for (String elem : infixList) {
-            if (elem.matches("\\++")) {
-                elem = "+";
-            } else if (elem.matches("-+")) {
-                elem = elem.length() % 2 == 0 ? "+" : "-";
-            }
-
-            if ("-".equals(elem) && "(".equals(previousElem)) {   // unary minus
-                postfixList.add("0");
-            }
-            previousElem = elem;
-
-            if (elem.matches("\\d+")) {                     // p1 - number
-                postfixList.add(elem);
-            } else if (elem.matches("\\p{Alpha}+")) {       // p1 - variable
-                if (!mapOfVars.containsKey(elem)) {
-                    throw new CalculatorException("Unknown variable", elem + " in infixToPostfix");
+    /**
+     * creates a postfix notation from input
+     * @param values collection of command without whitespaces and variables
+     * @return list with postfix notation
+     * @throws IllegalStateException when undefined symbol or too many brackets
+     */
+    static List<String> postfixNotation(Collection<String> values) throws IllegalStateException {
+        ArrayDeque<String> stack = new ArrayDeque<>();
+        ArrayDeque<String> braces = new ArrayDeque<>();
+        ArrayList<String> result = new ArrayList<>();
+        for (String val : values) {
+            if (val.matches(Main.DECIMAL_WITH_MINUS_REGEX)) { // add all numbers
+                result.add(val);
+            }  else if (val.matches("[-+*/^]")) { // operators
+                if (stack.isEmpty() || stack.getLast().equals("(")) {
+                    stack.offerLast(val);
+                } else if (getPriority(val) > getPriority(stack.getLast())) {
+                    stack.offerLast(val);
+                } else if (getPriority(val) <= getPriority(stack.getLast())){
+                    while (!stack.isEmpty()) {
+                        String last = stack.pollLast();
+                        if (getPriority(last) < getPriority(val) || last.equals("(")) {
+                            break;
+                        }
+                        if (last.matches("[-+*/^]")) {
+                            result.add(last);
+                        }
+                    }
+                    stack.offerLast(val);
                 }
-                postfixList.add(mapOfVars.get(elem).toString());
-            } else if ("(".equals(elem)) {                          // p5 - (
-                stack.offerLast(elem);
-            } else if (")".equals(elem)) {                          // p6 - )
-                while(true) {
-                    String previousOperator = stack.pollLast();
-                    if (previousOperator == null) {
-                        throw new CalculatorException("Invalid expression", " - unbalanced brackets, missing (");
-                    } else if ("(".equals(previousOperator)) {
+            } else if (val.equals("(")) { // bracket "("
+                stack.offerLast(val);
+                braces.offerLast(val);
+            } else if (val.equals(")")) { // bracket ")"
+                if (braces.pollLast() == null) { // illegal brackets quantity
+                    throw new IllegalStateException("Invalid expression");
+                }
+                while (!stack.isEmpty()) {
+                    String last = stack.pollLast();
+                    if (last.equals("(")) {
                         break;
                     }
-                    postfixList.add(previousOperator);
+                    if (last.matches("[-+*/^]")) {
+                        result.add(last);
+                    }
                 }
-            } else {                                                // some operator (pp 2,3,4)
-                String previousOperator = stack.peekLast();
-                if (previousOperator == null || "(".equals(previousOperator)) { // p2 - empty stack or (
-                    stack.offerLast(elem);
-                } else if (precedence(elem) > precedence(previousOperator)) {   // p3
-                    stack.offerLast(elem);
-                } else {    // p4 - the incoming operator has lower or equal precedence
-                    do {
-                        postfixList.add(stack.pollLast());
-                        previousOperator = stack.peekLast();
-                    } while (previousOperator != null &&
-                            !"(".equals(previousOperator) &&
-                            precedence(elem) <= precedence(previousOperator));
-                    stack.offerLast(elem);
-                }
+            } else { // ?
+                throw new IllegalStateException("Invalid identifier");
             }
         }
-
-        while (stack.peekLast() != null) {                          // p7
-            if ("(".equals(stack.peekLast())) {
-                throw new CalculatorException("Invalid expression", " - unbalanced brackets, missing )");
+        stack.descendingIterator().forEachRemaining(s -> {
+            if (s.matches("[-+*/^]")) {
+                result.add(s);
             }
-            postfixList.add(stack.pollLast());
-        }
-
-        //System.out.println(postfixList);
-        return postfixList.toArray(new String[0]);
-    }
-
-
-    private BigInteger calculateWithPostfix(String[] postfixExpr) {
-        Deque<BigInteger> stack = new ArrayDeque<>();
-        for (String elem : postfixExpr) {
-            if (elem.matches("\\d+")) {
-                stack.offerLast(new BigInteger(elem));
-            } else {
-                BigInteger b = stack.pollLast();
-                BigInteger a = stack.pollLast();
-
-                if (a == null || b == null) {
-                    throw new CalculatorException("Invalid expression", " - operand is null");
-                }
-                BigInteger result;
-                switch (elem) {
-                    case "+":
-                        result = a.add(b);
-                        break;
-                    case "-":
-                        result = a.subtract(b);
-                        break;
-                    case "*":
-                        result = a.multiply(b);
-                        break;
-                    case "/":
-                        result = a.divide(b);
-                        break;
-                    case "^":
-                        result = BigInteger.valueOf((long) Math.pow(a.doubleValue(), b.doubleValue()));
-                        break;
-                    default:
-                        throw new CalculatorException("Internal error", " - unknown operator " + elem);
-                }
-                stack.offerLast(result);
-            }
-        }
-
-        if (stack.size() != 1) {
-            throw new CalculatorException("Invalid expression", " - stack.size()!=1 in calculateWithPostfix");
-        }
-
-        return stack.pollLast();
-    }
-
-    private void doAssignment(String input) {
-        if (!input.matches("[a-zA-Z]+\\s*=.*")) {
-            throw new CalculatorException("Invalid identifier",
-                    "Identifier does not match the assignment pattern");
-        }
-
-        if (!input.matches("[a-zA-Z]+\\s*=\\s*(-?\\d+|[a-zA-Z]+)\\s*")) {
-            throw new CalculatorException("Invalid assignment",
-                    "Input does not match the assignment pattern");
-        }
-
-        Pattern varNamePattern = Pattern.compile("[a-zA-Z]+\\s*");
-        Matcher varNameMatcher = varNamePattern.matcher(input);
-
-        String varName;
-        varNameMatcher.find();
-        varName = varNameMatcher.group().trim();
-
-        String expression = input.substring(varNameMatcher.end() + 1).trim();
-        //System.out.println("varName = " + varName);
-        //System.out.println("expression = " + expression);
-
-        BigInteger value = new BigInteger(expression);
-
-        //System.out.println("value = " + value);
-        mapOfVars.put(varName, value);
-    }
-
-/*
-        private int calculate(String input) throws CalculatorException {
-        Pattern pattern = Pattern.compile("[+-]?(\\d+|\\s*\\w+)(\\s*[+-]+\\s*(\\d+|\\w+))*");
-        Matcher matcher = pattern.matcher(input.trim());
-        if (!matcher.matches()) {
-            throw new CalculatorException("Invalid expression",
-                    "The expression does not match the pattern");
-        }
-        String expression = input.replaceAll("\\++", " ")
-                .replaceAll("-\\s*-", " ")
-                .replaceAll("-\\s*", " -")
-                .trim();
-        String[] tokens = expression.split("\\s+");
-        int result = 0;
-        for (String token : tokens) {
-            if (token.matches("[+-]?\\d+")) {
-                result += Integer.parseInt(token);
-            } else {
-                int sign = 1;
-                if (token.startsWith("-")) {
-                    sign = -1;
-                    token = token.substring(1);
-                }
-                if (!mapOfVars.containsKey(token)) {
-                    throw new CalculatorException("Unknown variable", "");
-                }
-                result += sign * mapOfVars.get(token);
-            }
+        });
+        if (braces.size() != 0) { // illegal brackets quantity
+            throw new IllegalStateException("Invalid expression");
         }
         return result;
     }
-*/
 
+    /**
+     * calculate result of postfix equation
+     * @param values expression in postfix
+     * @return result as long
+     */
+    static BigDecimal calculatePostfix(List<String> values) {
+        ArrayDeque<BigDecimal> stack = new ArrayDeque<>();
+        for (String val : values) {
+            if (val.matches(Main.DECIMAL_WITH_MINUS_REGEX)) {
+                stack.offerLast(new BigDecimal(val));
+            } else {
+                BigDecimal a = stack.pollLast();
+                BigDecimal b = stack.pollLast();
+                if (a == null) {
+                    a = BigDecimal.ZERO;
+                }
+                if (b == null) {
+                    b = BigDecimal.ZERO;
+                }
+                switch (val) {
+                    case "+":
+                        stack.offerLast(b.add(a));
+                        break;
+                    case "-":
+                        stack.offerLast(b.subtract(a));
+                        break;
+                    case "*":
+                        stack.offerLast(b.multiply(a));
+                        break;
+                    case "/":
+                        stack.offerLast(b.divide(a, RoundingMode.CEILING));
+                        break;
+                    case "^":
+                        stack.offerLast(b.pow(a.intValue()));
+                        break;
+                }
+            }
+        }
+        return stack.removeLast();
+    }
 
+    /**
+     * sets a priority for operator
+     * @param operator operation sign
+     * @return priority as integer
+     */
+    static int getPriority(String operator) {
+        if (operator.equals("+") || operator.equals("-")) {
+            return 1;
+        }
+        if (operator.equals("*") || operator.equals("/")) {
+            return 2;
+        }
+        if (operator.equals("^")) {
+            return 3;
+        }
+        return -1;
+    }
 }
-
-class CalculatorException extends RuntimeException {
-
-    private String description;
-
-    public CalculatorException(String message) {
-        super(message);
-    }
-
-    public CalculatorException(String message, String description) {
-        super(message);
-        this.description = description;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-
-}
-
-
